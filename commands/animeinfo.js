@@ -1,14 +1,5 @@
 const axios = require('axios');
-
-
-async function isValidUrl(url) {
-  try {
-    const response = await axios.head(url);
-    return response.status === 200;
-  } catch (error) {
-    return false;
-  }
-}
+const cheerio = require('cheerio');
 
 module.exports = {
   name: 'animeinfo',
@@ -23,30 +14,21 @@ module.exports = {
   ],
   async execute(interaction) {
     const query = interaction.options.getString('nome');
-
+    
+    if (!interaction.deferred && !interaction.replied) {
+      await interaction.deferReply();
+    }
+  
     try {
-
       const response = await axios.get(`https://api.jikan.moe/v4/anime?q=${query}&limit=10`);
       const results = response.data.data;
-
-      const exactMatch = results.find(
-        (anime) =>
-          anime.title.toLowerCase() === query.toLowerCase() ||
-          (anime.title_english && anime.title_english.toLowerCase() === query.toLowerCase())
-      );
-
-      const partialMatch = results.find(
-        (anime) =>
-          anime.title.toLowerCase().includes(query.toLowerCase()) ||
-          (anime.title_english && anime.title_english.toLowerCase().includes(query.toLowerCase()))
-      );
-
-      const anime = exactMatch || partialMatch;
-
+  
+      const anime = await findValidResult(results, query);
+  
       if (!anime) {
-        return interaction.reply('Anime não encontrado. Tente novamente com outro nome.');
+        return interaction.editReply('Anime não encontrado. Tente novamente com outro nome.');
       }
-
+  
       const animeId = anime.mal_id;
       const detailsResponse = await axios.get(`https://api.jikan.moe/v4/anime/${animeId}`);
       const animeDetails = detailsResponse.data.data;
@@ -56,8 +38,8 @@ module.exports = {
       ? anime.synopsis.replace('[Written by MAL Rewrite]', `[Continue lendo no MyAnimeList](${malUrl})`)
       : 'N/A';
       const studio = animeDetails.studios && animeDetails.studios.length > 0
-        ? animeDetails.studios[0].name
-        : 'N/A';
+      ? `[${animeDetails.studios[0].name}](${animeDetails.studios[0].url})`
+      : 'N/A';
       
       const infoEmbed = {
         color: 0x0099ff,
@@ -102,10 +84,54 @@ module.exports = {
         timestamp: new Date(),
       };
 
-      interaction.reply({ embeds: [infoEmbed] });
+      interaction.editReply({ embeds: [infoEmbed] });
     } catch (error) {
       console.error('Erro ao buscar informações do anime:', error);
-      interaction.reply('Ocorreu um erro ao buscar informações do anime. Tente novamente mais tarde.');
+      interaction.editReply('Ocorreu um erro ao buscar informações do anime. Tente novamente mais tarde.');
     }
   },
 };
+
+async function findValidResult(results, query) {
+  const exactMatches = [];
+  const partialMatches = [];
+
+  for (const result of results) {
+    const malUrl = `https://myanimelist.net/anime/${result.mal_id}`;
+
+    try {
+      const urlResponse = await axios.get(malUrl);
+      const $ = cheerio.load(urlResponse.data);
+      const pageTitle = $('title').text();
+
+      if (pageTitle !== '404 Not Found - MyAnimeList.net') {
+        if (
+          result.title.toLowerCase() === query.toLowerCase() ||
+          (result.title_english && result.title_english.toLowerCase() === query.toLowerCase())
+        ) {
+          exactMatches.push(result);
+        } else if (
+          result.title.toLowerCase().includes(query.toLowerCase()) ||
+          (result.title_english && result.title_english.toLowerCase().includes(query.toLowerCase()))
+        ) {
+          partialMatches.push(result);
+        }
+      }
+    } catch (error) {
+      // Não faça nada aqui. A mensagem de erro será exibida apenas se não houver resultados válidos no final.
+    }
+  }
+
+  const validResult = exactMatches[0] || partialMatches[0] || null;
+
+  if (!validResult) {
+    console.error(`Erro ao pesquisar "${query}": Nenhum resultado válido encontrado.`);
+  }
+
+  return validResult;
+}
+
+
+
+
+
