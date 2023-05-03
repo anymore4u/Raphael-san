@@ -15,8 +15,19 @@ module.exports = {
     const query = interaction.options.getString('nome');
 
     try {
-      const response = await axios.get(`https://api.jikan.moe/v4/anime?q=${query}&limit=1`);
-      const anime = response.data.data[0];
+
+      const response = await axios.get(`https://api.jikan.moe/v4/anime?q=${query}&limit=10`);
+      const animeList = response.data.data;
+
+      if (!animeList || animeList.length === 0) {
+        return interaction.reply('Anime não encontrado. Tente novamente com outro nome.');
+      }
+
+      const anime = animeList.find(
+        (item) =>
+          item.title.toLowerCase().includes(query.toLowerCase()) ||
+          (item.title_english && item.title_english.toLowerCase().includes(query.toLowerCase()))
+      );
 
       if (!anime) {
         return interaction.reply('Anime não encontrado. Tente novamente com outro nome.');
@@ -31,9 +42,9 @@ module.exports = {
       ? anime.synopsis.replace('[Written by MAL Rewrite]', `[Continue lendo no MyAnimeList](${malUrl})`)
       : 'N/A';
       const studio = animeDetails.studios && animeDetails.studios.length > 0
-        ? animeDetails.studios[0].name
-        : 'N/A';
-      
+      ? `[${animeDetails.studios[0].name}](${animeDetails.studios[0].url})`
+      : 'N/A';
+
       const infoEmbed = {
         color: 0x0099ff,
         title: anime.title,
