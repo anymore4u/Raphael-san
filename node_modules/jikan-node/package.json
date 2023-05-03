@@ -1,0 +1,35 @@
+{
+  "name": "jikan-node",
+  "version": "1.2.1",
+  "description": "Wrapper for the unofficial MAL api, Jikan",
+  "main": "jikan-node.js",
+  "directories": {
+    "lib": "lib"
+  },
+  "dependencies": {
+    "cross-fetch": "^3.0.2"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xy137/jikan-node.git"
+  },
+  "keywords": [
+    "node",
+    "nodejs",
+    "javascript",
+    "js",
+    "jikan",
+    "mal",
+    "api"
+  ],
+  "author": "xy137",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/xy137/jikan-node/issues"
+  },
+  "homepage": "https://github.com/xy137/jikan-node#readme"
+}
