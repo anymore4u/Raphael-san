@@ -12,7 +12,7 @@ module.exports = {
     async execute(interaction) {
         // Verifica se o membro tem permissões de administrador ou moderador
         if (!interaction.member.permissions.has(Permissions.FLAGS.ADMINISTRATOR) &&
-            !interaction.member.roles.cache.some(role => role.name.toLowerCase() === 'mod')) {
+        (!interaction.member.roles || !interaction.member.roles.cache.some(role => role.name.toLowerCase() === 'mod'))) {
             return await interaction.reply({
                 content: 'Você não tem permissão para usar este comando.',
                 ephemeral: true

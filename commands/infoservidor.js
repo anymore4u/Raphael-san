@@ -5,8 +5,9 @@ module.exports = {
     description: 'Exibe informações sobre o servidor.',
     async execute(interaction) {
         const server = interaction.guild;
-        const numeroCanais = server.channels.cache.size;
+        const numeroCanais = server.channels && server.channels.cache ? server.channels.cache.size : 0;
         const numeroMembros = server.memberCount;
+        
 
         const embed = new MessageEmbed()
             .setTitle(`Informações do servidor: ${server.name}`)
