@@ -8,6 +8,7 @@ const fs = require('fs');
 const client = new Client({
     intents: [
         Intents.FLAGS.GUILDS,
+        Intents.FLAGS.GUILD_MEMBERS, 
         Intents.FLAGS.GUILD_BANS,
         Intents.FLAGS.GUILD_EMOJIS_AND_STICKERS,
         Intents.FLAGS.GUILD_INVITES,
@@ -76,6 +77,26 @@ client.on('interactionCreate', async interaction => {
     } catch (error) {
         console.error(error);
         await interaction.reply({ content: 'Ocorreu um erro ao executar esse comando.', ephemeral: true });
+    }
+});
+
+// Evento guildMemberAdd (Mensagem de boas-vindas)
+client.on('guildMemberAdd', async member => {
+    const welcomeChannelId = '1004356588770963489'; // Substitua pelo ID do canal de boas-vindas
+    const welcomeChannel = member.guild.channels.cache.get(welcomeChannelId);
+    
+    if (welcomeChannel) {
+        const welcomeEmbed = new MessageEmbed()
+            .setColor('#0099ff')
+            .setAuthor(member.displayName, member.user.displayAvatarURL({ dynamic: true }))
+            .setTitle('👋 Bem-vindo(a)!')
+            .setDescription(`Olá <@${member.id}>, espero que você se divirta no meu servidor! \n Por favor, leia as <#1004369993246462084> <:Blush:1006619012542767174>`) // Lembre-se de usar um emoji Unicode ou um emoji personalizado válido
+            .setThumbnail(member.user.displayAvatarURL({ dynamic: true })) // Adiciona a foto de perfil do usuário como thumbnail
+            .setImage('https://media.giphy.com/media/eY1XZYYCd1jte2XA1s/giphy.gif') // Insira o URL do seu GIF aqui
+            .setFooter(`ID: ${member.user.id}`);
+
+        welcomeChannel.send(`<@${member.id}>`);
+        welcomeChannel.send({ embeds: [welcomeEmbed] });
     }
 });
 
