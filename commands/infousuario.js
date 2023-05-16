@@ -1,14 +1,16 @@
 const { MessageEmbed } = require('discord.js');
 
 module.exports = {
-    name: 'infousuario',
-    description: 'Exibe informações do membro. Se não especificado, exibe informações do autor.',
-    options: [{
-        name: 'membro',
-        description: 'Membro para exibir informações.',
-        type: 6, // USER type
-        required: false
-    }],
+    name: 'syncperms',
+    description: 'Sincroniza permissões de todos os canais de uma categoria com a categoria.',
+    options: [
+        {
+            name: 'category_id',
+            description: 'ID da categoria para sincronizar as permissões.',
+            type: 3, // STRING type
+            required: true
+        }
+    ],
     async execute(interaction) {
         const member = interaction.options.getMember('membro') || interaction.member;
 

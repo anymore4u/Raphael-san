@@ -25,7 +25,7 @@ module.exports = {
             quantidade = 99;
         }
 
-        await interaction.channel.bulkDelete(quantidade + 1, true);
+        await interaction.channel.bulkDelete(quantidade, true);
         const msg = await interaction.reply({ content: `${quantidade} mensagens foram apagadas.`, fetchReply: true });
 
         setTimeout(() => {
