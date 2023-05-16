@@ -86,17 +86,18 @@ client.on('guildMemberAdd', async member => {
     const welcomeChannel = member.guild.channels.cache.get(welcomeChannelId);
     
     if (welcomeChannel) {
+        const memberCount = member.guild.memberCount;
+
         const welcomeEmbed = new MessageEmbed()
             .setColor('#0099ff')
             .setAuthor(member.displayName, member.user.displayAvatarURL({ dynamic: true }))
             .setTitle('👋 Bem-vindo(a)!')
-            .setDescription(`Olá <@${member.id}>, espero que você se divirta no meu servidor! \n Por favor, leia as <#1004369993246462084> <:Blush:1006619012542767174>`) // Lembre-se de usar um emoji Unicode ou um emoji personalizado válido
+            .setDescription(`Olá <@${member.id}>, \n Bem-vindo(a) a Avalon! \n Por favor, leia as <#1004369993246462084> <:Blush:1006619012542767174>`) // Lembre-se de usar um emoji Unicode ou um emoji personalizado válido
             .setThumbnail(member.user.displayAvatarURL({ dynamic: true })) // Adiciona a foto de perfil do usuário como thumbnail
             .setImage('https://media.giphy.com/media/eY1XZYYCd1jte2XA1s/giphy.gif') // Insira o URL do seu GIF aqui
-            .setFooter(`ID: ${member.user.id}`);
+            .setFooter(` Membros: ${memberCount} | ID: ${member.user.id} `, member.guild.iconURL({ dynamic: true })); // Adiciona o ícone do servidor, a quantidade de membros e o ID do membro no footer
 
-        welcomeChannel.send(`<@${member.id}>`);
-        welcomeChannel.send({ embeds: [welcomeEmbed] });
+            welcomeChannel.send({ content: `<@${member.id}>`, embeds: [welcomeEmbed] });
     }
 });
 
