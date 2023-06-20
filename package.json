@@ -21,6 +21,6 @@
     "luxon": "^3.3.0",
     "moment-timezone": "^0.5.43",
     "myanimelist-api": "^1.0.1",
-    "node-fetch": "^2.6.6"
+    "node-fetch": "^2.6.7"
   }
 }
