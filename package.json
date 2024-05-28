@@ -12,15 +12,24 @@
   "dependencies": {
     "@discordjs/builders": "^1.6.2",
     "@discordjs/rest": "^1.7.1",
-    "axios": "^1.4.0",
+    "@discordjs/voice": "^0.16.0",
+    "axios": "^1.6.7",
+    "bson": "^6.6.0",
     "cheerio": "^1.0.0-rc.12",
-    "discord.js": "^13.2.0",
-    "dotenv": "^16.0.3",
+    "discord.js": "^13.16.0",
+    "dotenv": "^16.4.1",
+    "genius-lyrics-api": "^3.2.0",
     "jikan-node": "^1.2.1",
     "jikanjs": "^0.7.0",
     "luxon": "^3.3.0",
-    "moment-timezone": "^0.5.43",
+    "moment": "^2.29.4",
+    "moment-timezone": "^0.5.44",
+    "mongodb": "^6.3.0",
+    "mongoose": "^6.5.2",
     "myanimelist-api": "^1.0.1",
-    "node-fetch": "^2.6.6"
+    "node-fetch": "^2.6.6",
+    "spotify-web-api-node": "^5.0.2",
+    "youtube-search": "^1.1.6",
+    "ytdl-core": "^4.11.5"
   }
 }
