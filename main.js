@@ -515,12 +515,14 @@ client.on('messageCreate', async message => {
     } else if (/\b(DJ)\b/i.test(message.content.toUpperCase())) {
         const users = [
             '<@159075102296768512>',
-            '<@539596207849340948>'
+            '<@539596207849340948>',
+            '<@302252030922326017>'
         ];
     
         const gifs = [
             'https://media1.tenor.com/m/fHraspOHAYwAAAAC/mushoku-tensei-anime.gif',
-            'https://imgur.com/d3HDZ2b.gif'
+            'https://imgur.com/d3HDZ2b.gif',
+            'https://media1.tenor.com/m/siPi9gkFdSAAAAAC/squirt-porn.gif'
         ];
     
         // Escolher um usuário e um GIF aleatoriamente
