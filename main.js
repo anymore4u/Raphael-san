@@ -11,11 +11,11 @@ const { connectMongo } = require('./mongodbClient.js');
 const moment = require('moment-timezone');
 const Evento = require('./models/Evento');
 const mongoose = require('mongoose');
+const cron = require('node-cron');
 
 // Chama a função para conectar ao MongoDB
 connectMongo().then((mongoClient) => {
     if (mongoClient) {
-        console.log("Conectado ao MongoDB com sucesso.");
         global.mongoClient = mongoClient;
         const db = mongoClient.db("discordBot");
         const channelsCollection = db.collection("temporaryChannels");
@@ -33,8 +33,6 @@ connectMongo().then((mongoClient) => {
                 }
             }
         }, 600000); // Verifica a cada 10 minutos
-    } else {
-        console.error("Falha ao conectar ao MongoDB.");
     }
 }).catch(err => {
     console.error('Erro ao conectar ao MongoDB:', err);
@@ -52,7 +50,15 @@ const client = new Client({
         Intents.FLAGS.GUILD_VOICE_STATES,
         Intents.FLAGS.DIRECT_MESSAGES,
         Intents.FLAGS.DIRECT_MESSAGE_REACTIONS
-    ]
+    ],
+    http: {
+        version: 9,
+        api: 'https://discord.com/api',
+        cdn: 'https://cdn.discordapp.com',
+        invite: 'https://discord.gg',
+        template: 'https://discord.new',
+        timeout: 60000 // Aumenta o timeout para 60 segundos
+    }
 });
 
 // Define the cooldown schema
@@ -240,6 +246,8 @@ const specificUserId = '159075102296768512';
 const specificTextChannelId = '1167639004338987008';
 
 client.on('voiceStateUpdate', (oldState, newState) => {
+    const excludedVoiceChannelId = '1167638983103217785';
+
     // Verifica se o usuário específico está envolvido na atualização de estado
     if (newState.member.id === specificUserId || oldState.member.id === specificUserId) {
         const channel = newState.guild.channels.cache.get(specificTextChannelId);
@@ -248,18 +256,36 @@ client.on('voiceStateUpdate', (oldState, newState) => {
         // Hora atual formatada
         const now = DateTime.now().setZone('America/Sao_Paulo').toFormat('HH:mm:ss');
 
-        // Verifica se o usuário entrou em um canal de voz
-        if (!oldState.channel && newState.channel) {
+        // Verifica se o usuário entrou em um canal de voz que não seja o excluído
+        if (!oldState.channel && newState.channel && newState.channel.id !== excludedVoiceChannelId) {
             channel.send(`Registrando ponto de entrada da <@${specificUserId}> às ${now}.`);
             channel.send('https://media1.tenor.com/m/cwOI3DtZRzgAAAAC/anya-forger-taking-notes.gif');
         }
-        // Verifica se o usuário saiu de um canal de voz
-        else if (oldState.channel && !newState.channel) {
+        // Verifica se o usuário saiu de um canal de voz que não seja o excluído
+        else if (oldState.channel && !newState.channel && oldState.channel.id !== excludedVoiceChannelId) {
             channel.send(`Registrando ponto de saída da <@${specificUserId}> às ${now}.`);
             channel.send('https://media1.tenor.com/m/lFCX6zJnNNMAAAAC/frieren-anime.gif');
         }
     }
 });
+
+const roleId = '1170823905972326481'; // ID do cargo que será adicionado aos novos canais de voz
+
+client.on('channelCreate', async (channel) => {
+    // Verifica se o novo canal é um canal de voz
+    if (channel.type === 'GUILD_VOICE') {
+        try {
+            // Adiciona a permissão de enviar mensagens de texto ao cargo
+            await channel.permissionOverwrites.create(roleId, {
+                SEND_MESSAGES: false
+            });
+            console.log(`Cargo ${roleId} adicionado ao canal de voz ${channel.id}`);
+        } catch (error) {
+            console.error('Erro ao adicionar o cargo ao novo canal de voz:', error);
+        }
+    }
+});
+
 
 // Substitua pelos seus valores
 const twitchClientID = 'ncl4z9vl557x0bg0xzw3b27fj77hfk';
@@ -473,19 +499,22 @@ client.on('messageCreate', async message => {
     }else if (/\b(ESPECIALISTA)\b/i.test(message.content.toUpperCase())) {
         const msg = 'se for de anime e transa, é o <@393581900155060224>';
         await message.reply(msg);
-    } else if (/\b(WHALE|BEBADO|TARTARUGA SLAYER)\b/i.test(message.content.toUpperCase())) {
+    } else if (/\b(FURRY)\b/i.test(message.content.toUpperCase())) {
+        const msg = 'o <@446434441804513338> gosta.';
+        await message.reply(msg);
+    } else if (/\b(WHALE|BEBADO|TARTARUGA SLAYER|BÊBADO)\b/i.test(message.content.toUpperCase())) {
         const msg = 'tão falando de vc <@491459349957312512>';
         await message.reply(msg);
     } else if (/\b(PESADELO)\b/i.test(message.content.toUpperCase())) {
         const msg = '[A NÃO É O](https://media1.tenor.com/m/63kQYZ0mgWAAAAAC/nightmare-nightmare-sans.gif) <@128346888863875072>';
         await message.reply(msg);
-    } else if (/\b(METADE|METADINHA)\b/i.test(message.content.toUpperCase())) {
+    } else if (/\b(METADE|METADINHA|MEIO|0.5)\b/i.test(message.content.toUpperCase())) {
         const msg = 'tão falando de vc <@560444018622857247>';
         await message.reply(msg);
-    } else if (/\b(NECROFILO|LOLICON|INCESTO)\b/i.test(message.content.toUpperCase())) {
+    } else if (/\b(NECROFILO|INCESTO)\b/i.test(message.content.toUpperCase())) {
         const msg = 'tão falando de vc <@380826553329909763>';
         await message.reply(msg);
-    } else if (/\b(BEBADA)\b/i.test(message.content.toUpperCase())) {
+    } else if (/\b(BEBADA|BÊBADA)\b/i.test(message.content.toUpperCase())) {
         const msg = 'tão falando de vc <@159075102296768512>';
         await message.reply(msg);
     } else if (/\b(MILHO)\b/i.test(message.content.toUpperCase())) {
@@ -509,14 +538,24 @@ client.on('messageCreate', async message => {
         const msg = messages[Math.floor(Math.random() * messages.length)];
         
         await message.reply(msg);
-    } else if (/\b(BOY)\b/i.test(message.content.toUpperCase())) {
+    } else if (/\b(LOLICON)\b/i.test(message.content.toUpperCase())) {
+        // Lista de mensagens possíveis
+        const messages = [
+           'tão falando de vc <@446434441804513338>',
+           'tão falando de vc <@380826553329909763>'
+       ];
+
+       // Escolher uma mensagem aleatória da lista
+       const msg = messages[Math.floor(Math.random() * messages.length)];
+       
+       await message.reply(msg);
+   } else if (/\b(BOY)\b/i.test(message.content.toUpperCase())) {
         const msg = 'o do <@446434441804513338> não quer funcionar';
         await message.reply(msg);
     } else if (/\b(DJ)\b/i.test(message.content.toUpperCase())) {
         const users = [
             '<@159075102296768512>',
-            '<@539596207849340948>',
-            '<@302252030922326017>'
+            '<@539596207849340948>'
         ];
     
         const gifs = [
@@ -536,7 +575,6 @@ client.on('messageCreate', async message => {
     }  else if (/\b(CALVO)\b/i.test(message.content.toUpperCase())) {
         const userIds = [
             '560444018622857247',
-            '225331823742418944',
             '246684210960531458',
             '539596207849340948',
             '446434441804513338',
@@ -548,7 +586,8 @@ client.on('messageCreate', async message => {
             '302252030922326017',
             '491459349957312512',
             '346295489911717889',
-            '305133277755211777'
+            '286855009482702849',
+            '216417824141344770'
         ];
         const randomUserId = userIds[Math.floor(Math.random() * userIds.length)];
         const msg = `tão falando de vc <@${randomUserId}>`;
@@ -583,11 +622,11 @@ client.on('messageCreate', async message => {
             }
 
             const userIds = [
-                '560444018622857247', '225331823742418944', '246684210960531458', 
+                '560444018622857247', '246684210960531458', '286855009482702849',
                 '539596207849340948', '446434441804513338', '128346888863875072', 
                 '518669408554713108', '380826553329909763', '159075102296768512',
                 '393581900155060224', '302252030922326017', '491459349957312512',
-                '346295489911717889', '305133277755211777'
+                '346295489911717889', '216417824141344770'
             ];
 
             // Selecionar um ID aleatório da lista
@@ -725,7 +764,281 @@ client.on('interactionCreate', async interaction => {
     }
 });
 
+const activeReactions = new Set();
+
+client.on('messageCreate', async message => {
+    // Comando para iniciar ou parar a adição de reações
+    if (message.content.startsWith(';kataburro')) {
+        const targetUserId = '393581900155060224';
+
+        // Checa se o usuário que enviou a mensagem tem o cargo necessário
+        const requiredRoleId = '1167638831349125210'; // Substitua pelo ID do cargo que tem permissão para usar o comando
+        if (!message.member.roles.cache.has(requiredRoleId)) {
+            return message.reply('Você não tem permissão para usar este comando.');
+        }
+
+        // Se já existe uma reação ativa para este usuário, removê-la
+        if (activeReactions.has(targetUserId)) {
+            activeReactions.delete(targetUserId);
+            console.log(`Reações para o usuário <@${targetUserId}> desativadas por <@${message.author.id}>.`);
+            return;
+        }
+
+        // Ativa a adição de reações para o usuário
+        activeReactions.add(targetUserId);
+        console.log(`Reações para o usuário <@${targetUserId}> ativadas por <@${message.author.id}>.`);
+    }
+
+    // Adiciona a reação às mensagens do usuário alvo
+    if (activeReactions.has(message.author.id)) {
+        try {
+            await message.react('<:braininthetrash:1252660843716411544>');
+        } catch (error) {
+            console.error('Erro ao adicionar a reação:', error);
+        }
+    }
+});
+
 // Defina a verificação para ocorrer a cada X minutos
 setInterval(() => verificarEnquetes(client), 1 * 60000); // Ajuste o intervalo conforme necessário
+
+// Mapeamento de personagens para IDs dos cargos
+const xpCharacters = {
+    'Doroka': '1202044140985262131',
+    'Saki Arima': '1202044533643153428',
+    'Rachel': '1202044694016835634',
+    'Malty Melromarc': '1202044732403109958',
+    'Akemi Hinazuki': '1202044783535853568',
+    'Nina Tucker': '1202044947059191918',
+    'Tinasha': '1202044960887799908',
+    'Kumiko Oumae': '1202045047613435965',
+    'Sekai Saionji': '1202045052126236722',
+    'Kotonoha Katsura': '1202045057247756288',
+    'Levi': '1202045076596080741',
+    'Makoto Itou': '1203440445875822652',
+    'Satoru Gojo': '1203440452187979858',
+    'Roronoa Zoro': '1203440456713904128',
+    'Shinji Ikari': '1203440466662793376'
+};
+
+client.on('messageCreate', async (message) => {
+    // Verifica se a mensagem é do Mudae e contém o casamento
+    if (message.content.includes('💖') && message.content.includes('agora são casados')) {
+
+        console.log("Mensagem de casamento detectada.");
+
+        // Usa regex para capturar o nome do usuário e do personagem
+        const regex = /💖 \*\*(.*?)\*\* e \*\*(.*?)\*\* agora são casados/;
+        const matches = message.content.match(regex);
+
+        if (!matches || matches.length < 3) {
+            console.log("Formato da mensagem inesperado:", message.content);
+            return; // Abort if format is unexpected
+        }
+
+        const user = matches[1]; // Nome do usuário
+        const character = matches[2]; // Nome do personagem
+
+        console.log(`Usuário: ${user}, Personagem: ${character}`);
+
+        // Verifica se o personagem casado está na lista de personagens que dão XP
+        if (!xpCharacters[character]) {
+            console.log(`Personagem ${character} não está na lista de personagens com cargo de XP.`);
+            return; // Se o personagem não está na lista, a função para aqui
+        }
+
+        const guild = message.guild;
+        const member = guild.members.cache.find(m => m.user.tag.startsWith(user));
+        const roleId = xpCharacters[character]; // ID do cargo associado ao personagem
+
+        if (!member) {
+            console.log("Não foi possível encontrar o membro:", user);
+            return; // Abort if member not found
+        }
+
+        const role = guild.roles.cache.get(roleId); // Obter o cargo específico
+
+        if (!role) {
+            console.log("Não foi possível encontrar o cargo:", roleId);
+            return; // Abort if role not found
+        }
+
+        // Certifique-se de que a conexão com o MongoDB está pronta
+        if (!global.mongoClient) {
+            console.error('MongoDB não está conectado.');
+            return message.reply('Erro ao conectar ao banco de dados. Tente novamente mais tarde.');
+        }
+
+        const db = global.mongoClient.db("discordBot"); // Use o nome correto do seu banco de dados
+        const mudaeCollection = db.collection('mudaeMarriages'); // Cria ou usa a coleção 'mudaeMarriages'
+
+        const now = moment.tz('America/Sao_Paulo'); // Data atual
+
+        // Verifica se o usuário já tem um cargo de XP ativo
+        const userRecord = await mudaeCollection.findOne({ userId: member.id });
+
+        if (userRecord && userRecord.activeRole) {
+            // Se o usuário já tem um cargo ativo, enfileira o novo cargo
+            await mudaeCollection.updateOne(
+                { userId: member.id },
+                { $push: { queue: { roleId: roleId, character: character } } } // Adiciona o novo cargo à fila
+            );
+            return message.reply(`Você já tem um bônus de XP ativo. O cargo <@&${roleId}> foi adicionado à fila e será aplicado assim que o bônus atual expirar.`);
+        }
+
+        // Atribui o cargo ao usuário e configura a expiração em 7 dias
+        await member.roles.add(role);
+        console.log(`Cargo atribuído: ${role.name}`);
+
+        // Envia uma mensagem no canal informando o usuário
+        await message.channel.send(
+            `🎉 Parabéns, ${user}! Você casou com **${character}** e ganhou o cargo <@&${roleId}>!`
+        );
+
+        const expiresAt = now.add(7, 'days').toDate(); // Expira em 7 dias
+
+        // Salva as informações no MongoDB
+        await mudaeCollection.updateOne(
+            { userId: member.id },
+            { $set: { activeRole: roleId, character: character, startDate: new Date(), expiresAt }, $setOnInsert: { queue: [] } },
+            { upsert: true } // Insere ou atualiza o registro
+        );
+
+        console.log(`Cargo salvo no MongoDB para o usuário ${user}.`);
+    }
+});
+
+// Agendamento para remover cargos expirados todos os dias às 23:59
+cron.schedule('59 23 * * *', async () => {
+    const now = new Date();
+    const db = global.mongoClient.db("discordBot");
+    const mudaeCollection = db.collection('mudaeMarriages'); // Coleção do Mudae
+
+    const expiringRoles = await mudaeCollection.find({ expiresAt: { $lte: now } }).toArray();
+
+    for (const roleInfo of expiringRoles) {
+        const guild = client.guilds.cache.get('1167636254930772129'); // Substitua pelo ID do servidor
+        const member = guild.members.cache.get(roleInfo.userId);
+        const role = guild.roles.cache.get(roleInfo.activeRole);
+
+        if (member && role) {
+            await member.roles.remove(role);
+            console.log(`Cargo expirado removido de ${member.user.tag}`);
+        }
+
+        // Verifica se há cargos na fila
+        if (roleInfo.queue && roleInfo.queue.length > 0) {
+            const nextRole = roleInfo.queue[0]; // Pega o próximo cargo da fila
+            const nextRoleId = nextRole.roleId;
+
+            const nextRoleObj = guild.roles.cache.get(nextRoleId);
+            if (nextRoleObj) {
+                // Atribui o próximo cargo
+                await member.roles.add(nextRoleObj);
+                console.log(`Cargo ${nextRoleObj.name} atribuído a ${member.user.tag} a partir da fila.`);
+
+                const newExpiresAt = moment.tz('America/Sao_Paulo').add(7, 'days').toDate(); // Expira em 7 dias
+
+                // Atualiza o registro no MongoDB com o novo cargo ativo e remove o próximo cargo da fila
+                await mudaeCollection.updateOne(
+                    { userId: member.id },
+                    {
+                        $set: { activeRole: nextRoleId, expiresAt: newExpiresAt },
+                        $pull: { queue: { roleId: nextRoleId } } // Remove o próximo cargo da fila após ser aplicado
+                    }
+                );
+                console.log(`Cargo ${nextRoleObj.name} removido da fila e atribuído a ${member.user.tag}.`);
+            } else {
+                console.log(`Erro: Cargo com ID ${nextRoleId} não encontrado no servidor.`);
+            }
+        } else {
+            // Não há mais cargos na fila, limpa o registro
+            await mudaeCollection.updateOne(
+                { userId: roleInfo.userId },
+                { $unset: { activeRole: "", expiresAt: "" } } // Remove os dados de cargo ativo
+            );
+            console.log(`Nenhum cargo na fila. Limpeza de registros concluída para o usuário ${member.user.tag}.`);
+        }
+    }
+});
+
+// Importe a função removeRoleAfterTimeout
+const { activeTimeouts, removeRoleAfterTimeout } = require('./shared'); // Ajuste o caminho conforme a estrutura do seu projeto
+
+async function restoreActiveTimeouts(client) {
+    const db = global.mongoClient.db("discordBot");
+    const pikachuverdeCollection = db.collection('pikachuverde');
+
+    const now = Date.now();
+
+    // Busca todas as atribuições de cargos que ainda não expiraram
+    const assignments = await pikachuverdeCollection.find({
+        type: 'roleAssignment',
+        endTime: { $gt: new Date(now) }
+    }).toArray();
+
+    for (const assignment of assignments) {
+        const remainingTime = new Date(assignment.endTime).getTime() - now;
+
+        // Configura o temporizador para remover o cargo quando o tempo acabar
+        const timeoutHandle = setTimeout(async () => {
+            await removeRoleAfterTimeout(client, assignment.guildId, assignment.userId, assignment.roleId, pikachuverdeCollection);
+        }, remainingTime);
+
+        // Salva o temporizador no registro
+        activeTimeouts[assignment.userId] = timeoutHandle;
+    }
+}
+
+// Chame restoreActiveTimeouts quando o bot estiver pronto
+client.once('ready', () => {
+    console.log(`Bot logado como ${client.user.tag}`);
+
+    // Restaurar temporizadores ativos
+    restoreActiveTimeouts(client).catch(console.error);
+});
+
+async function checkRoleRemovals(client) {
+    const db = global.mongoClient.db("discordBot");
+    const pikachuverdeCollection = db.collection('pikachuverde');
+
+    const now = new Date();
+
+    // Busca atribuições expiradas
+    const expiredAssignments = await pikachuverdeCollection.find({
+        type: 'roleAssignment',
+        endTime: { $lte: now }
+    }).toArray();
+
+    for (let assignment of expiredAssignments) {
+        try {
+            const guild = await client.guilds.fetch(assignment.guildId);
+            const member = await guild.members.fetch(assignment.userId);
+
+            if (member.roles.cache.has(assignment.roleId)) {
+                await member.roles.remove(assignment.roleId);
+                console.log(`Cargo <@&${assignment.roleId}> removido de <@${assignment.userId}> pela verificação periódica.`);
+            }
+
+            // Remove a atribuição do banco de dados
+            await pikachuverdeCollection.deleteOne({ _id: assignment._id });
+
+            // Remove o temporizador do registro, se existir
+            if (activeTimeouts[assignment.userId]) {
+                clearTimeout(activeTimeouts[assignment.userId]);
+                delete activeTimeouts[assignment.userId];
+            }
+
+        } catch (error) {
+            console.error(`Erro ao remover o cargo de <@${assignment.userId}>:`, error);
+        }
+    }
+}
+
+// Agende a função para rodar a cada hora
+setInterval(() => {
+    checkRoleRemovals(client);
+}, 60 * 60 * 1000); // A cada hora
+
 
 client.login(token);

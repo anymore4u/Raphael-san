@@ -27,6 +27,7 @@
     "mongodb": "^6.3.0",
     "mongoose": "^6.5.2",
     "myanimelist-api": "^1.0.1",
+    "node-cron": "^3.0.3",
     "node-fetch": "^2.6.6",
     "spotify-web-api-node": "^5.0.2",
     "youtube-search": "^1.1.6",
