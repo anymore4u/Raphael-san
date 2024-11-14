@@ -7525,3 +7525,7 @@ node_modules/vali-date/package.json
 node_modules/vali-date/readme.md
 Dockerfile
 .vscode/settings.json
+/node_modules/
+/node_modules/
+/config-dev.json
+/Dockerfiledev
