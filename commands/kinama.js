@@ -4,7 +4,17 @@ module.exports = {
     name: 'kinama',
     description: 'Menciona o usuário e envia uma mensagem e um gif.',
     async execute(interaction) {
-        await interaction.reply(`<@518669408554713108>, aquele que mama!`);
+        // Aleatoriedade de 50/50 para escolher a mensagem
+        const random = Math.random();
+        
+        if (random < 0.5) {
+            // 50% de chance: mensagem original
+            await interaction.reply(`<@518669408554713108>, aquele que mama!`);
+        } else {
+            // 50% de chance: quem enviou o comando mama
+            await interaction.reply(`<@518669408554713108> te pegou, e <@${interaction.user.id}> mamou ele`);
+        }
+        
         const apiKey = 'AIzaSyBufz2lnKKB3LNUci2mkF8xMCp00dBE9uY';
         const gifURL = `https://tenor.googleapis.com/v2/search?q=popsicle+anime&key=${apiKey}&client_key=my_test_app&limit=5`;
 

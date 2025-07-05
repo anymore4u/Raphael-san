@@ -1,13 +1,12 @@
 const fetch = require('node-fetch');
 
 module.exports = {
-    name: 'caprice',
+    name: 'bell',
     description: 'Menciona o usuário e envia uma mensagem e um gif.',
     async execute(interaction) {
-        // await interaction.reply(`<@456226577798135808>, PRESS F!`);
-        await interaction.reply(`<@1345892103040798851>, PRESS F!`);
+        await interaction.reply(`<@307180420787863552> = Futanari! **Cuidado!**`);
         const apiKey = 'AIzaSyBufz2lnKKB3LNUci2mkF8xMCp00dBE9uY';
-        const gifURL = `https://tenor.googleapis.com/v2/search?q=jail+anime&key=${apiKey}&client_key=my_test_app&limit=5`;
+        const gifURL = `https://tenor.googleapis.com/v2/search?q=trap+anime&key=${apiKey}&client_key=my_test_app&limit=10`;
 
         const response = await fetch(gifURL);
         const json = await response.json();
