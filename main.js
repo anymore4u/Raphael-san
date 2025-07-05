@@ -1,4 +1,7 @@
-const { Client, MessageEmbed ,Intents } = require('discord.js');
+const { ReadableStream } = require('stream/web');
+global.ReadableStream = ReadableStream;
+
+const { Client, MessageEmbed ,Intents, MessageAttachment } = require('discord.js');
 const { REST } = require('@discordjs/rest');
 const { Routes } = require('discord-api-types/v9');
 const { clientId, guildIds, token } = require('./config.json');
@@ -6,8 +9,9 @@ const { DateTime } = require('luxon');
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
-const enquetePath = path.join(__dirname, 'commands', 'data');
+// enquetePath removido - agora usa MongoDB
 const { connectMongo } = require('./mongodbClient.js');
+const { recoverActiveEnquetes } = require('./utils/enqueteRecovery.js');
 const moment = require('moment-timezone');
 const Evento = require('./models/Evento');
 const mongoose = require('mongoose');
@@ -33,15 +37,33 @@ connectMongo().then((mongoClient) => {
                 }
             }
         }, 600000); // Verifica a cada 10 minutos
+        
+        // Recuperar enquetes ativas quando o bot inicializar
+        client.once('ready', async () => {
+            console.log(`Bot ${client.user.tag} está online!`);
+            console.log('Recuperando enquetes ativas...');
+            await recoverActiveEnquetes(client);
+        });
     }
 }).catch(err => {
     console.error('Erro ao conectar ao MongoDB:', err);
 });
 
+// Lista de usuários bloqueados - adicione IDs de usuários que devem ser impedidos de usar o bot
+const BLOCKED_USERS = [
+    // '123456789012345678', // Exemplo de ID de usuário bloqueado
+    // '987654321098765432', // Adicione mais IDs conforme necessário
+];
+
+// Função para verificar se um usuário está bloqueado
+const isUserBlocked = (userId) => {
+    return BLOCKED_USERS.includes(userId);
+};
+
 const client = new Client({
     intents: [
         Intents.FLAGS.GUILDS,
-        Intents.FLAGS.GUILD_MEMBERS, 
+        Intents.FLAGS.GUILD_MEMBERS,
         Intents.FLAGS.GUILD_BANS,
         Intents.FLAGS.GUILD_EMOJIS_AND_STICKERS,
         Intents.FLAGS.GUILD_INVITES,
@@ -79,7 +101,10 @@ const commandFiles = fs.readdirSync('./commands').filter(file => file.endsWith('
 
 for (const file of commandFiles) {
     const command = require(`./commands/${file}`);
-    client.commands.set(command.name, command);
+    // Filtra o comando 'vovoTurbo' para que ele não seja registrado
+    if (command.name !== 'vovoTurbo') {
+        client.commands.set(command.name, command);
+    }
 }
 
 (async () => {
@@ -88,11 +113,13 @@ for (const file of commandFiles) {
 
         const commandsData = [];
         for (const [, command] of client.commands) {
-            commandsData.push({
-                name: command.name,
-                description: command.description,
-                options: command.options,
-            });
+            if (command.name && command.description) { // Verifica se o comando tem os campos obrigatórios
+                commandsData.push({
+                    name: command.name,
+                    description: command.description,
+                    options: command.options,
+                });
+            }
         }
 
         for (const guildId of guildIds) {
@@ -110,6 +137,11 @@ for (const file of commandFiles) {
 
 client.on('interactionCreate', async interaction => {
     if (!interaction.isCommand()) return;
+
+    // Verificar se o usuário está bloqueado
+    /* if (isUserBlocked(interaction.user.id)) {
+        return; // Ignora completamente a interação se o usuário estiver bloqueado
+    }*/
 
     const command = client.commands.get(interaction.commandName);
 
@@ -163,6 +195,31 @@ client.on('guildMemberAdd', async member => {
     });
 });
 
+// Evento guildMemberRemove (Mensagem de despedida)
+client.on('guildMemberRemove', async member => {
+    const farewellChannelId = '1167638995820367924'; // Canal específico para despedidas
+    const farewellChannel = member.guild.channels.cache.get(farewellChannelId);
+
+    if (!farewellChannel) return;
+
+    const memberCount = member.guild.memberCount; // Pega a quantidade de membros no servidor
+
+    const farewellMessage = `${member.displayName} saiu do servidor... 😢\nSentiremos sua falta (ou não)!`;
+
+    const farewellEmbed = new MessageEmbed()
+        .setColor('#ff6b6b')
+        .setAuthor({ name: member.displayName, iconURL: member.user.displayAvatarURL({ dynamic: true }) })
+        .setTitle('👋 Tchau! Vai pela sombra...')
+        .setDescription(farewellMessage)
+        .setThumbnail(member.user.displayAvatarURL({ dynamic: true }))
+        .setImage('attachment://rimuru-cry.gif')
+        .setFooter({ text: `Membros restantes: ${memberCount} | ID: ${member.user.id}`, iconURL: member.guild.iconURL({ dynamic: true }) });
+
+    const attachment = new MessageAttachment('./commands/DiscordOut/rimuru-cry.gif', 'rimuru-cry.gif');
+    
+    farewellChannel.send({ embeds: [farewellEmbed], files: [attachment] });
+});
+
 
 
 /*const groupMembers = new Map();
@@ -170,12 +227,12 @@ client.on('guildMemberAdd', async member => {
 client.on('interactionCreate', async interaction => {
     if (!interaction.isButton()) return;
 
-    const user = interaction.member;  
+    const user = interaction.member;
     const role = interaction.customId;
     const message = interaction.message;
     const creatorId = message.embeds[0].fields.find(field => field.name === '\u200b')?.value;
     const creatorIdNumeric = creatorId ? creatorId.match(/(\d+)/)?.[0] : null;
-    
+
     // Verifique se a interação é para excluir o grupo
     if (role === 'delete_group') {
         // Verifique se o criador do grupo é a pessoa que está interagindo
@@ -208,7 +265,7 @@ client.on('interactionCreate', async interaction => {
             return interaction.reply({ content: 'Você deixou o grupo.', ephemeral: true });
         }
     }
-    
+
 
     // Se o usuário está tentando escolher um role diferente
     for (const field of message.embeds[0].fields) {
@@ -223,7 +280,7 @@ client.on('interactionCreate', async interaction => {
         if (numMembers >= client.groupSize) {
             return interaction.reply({ content: 'O grupo já está lotado.', ephemeral: true });
         }
-    
+
         message.embeds[0].fields.find(field => field.name.split(" ")[1].toUpperCase() === role.toUpperCase()).value = `${user.nickname || user.user.username} - <@${user.user.id}>`;
     } else {
         // Verifique se o grupo já está cheio
@@ -231,7 +288,7 @@ client.on('interactionCreate', async interaction => {
         if (numMembers >= client.groupSize) {
             return interaction.reply({ content: 'O grupo já está lotado.', ephemeral: true });
         }
-    
+
         message.embeds[0].fields.find(field => field.name.split(" ")[1].toUpperCase() === role.toUpperCase()).value += `\n${user.nickname || user.user.username} - <@${user.user.id}>`;
     }
 
@@ -256,15 +313,21 @@ client.on('voiceStateUpdate', (oldState, newState) => {
         // Hora atual formatada
         const now = DateTime.now().setZone('America/Sao_Paulo').toFormat('HH:mm:ss');
 
+        // Caminhos para os GIFs
+        const entryGifPath = path.join(__dirname, 'commands', 'DiscordOut', 'sushiin.gif');
+        const exitGifPath = path.join(__dirname, 'commands', 'DiscordOut', 'sushiout.gif');
+
         // Verifica se o usuário entrou em um canal de voz que não seja o excluído
         if (!oldState.channel && newState.channel && newState.channel.id !== excludedVoiceChannelId) {
+            const entryGif = new MessageAttachment(entryGifPath);
             channel.send(`Registrando ponto de entrada da <@${specificUserId}> às ${now}.`);
-            channel.send('https://media1.tenor.com/m/cwOI3DtZRzgAAAAC/anya-forger-taking-notes.gif');
+            channel.send({ files: [entryGif] });
         }
         // Verifica se o usuário saiu de um canal de voz que não seja o excluído
         else if (oldState.channel && !newState.channel && oldState.channel.id !== excludedVoiceChannelId) {
+            const exitGif = new MessageAttachment(exitGifPath);
             channel.send(`Registrando ponto de saída da <@${specificUserId}> às ${now}.`);
-            channel.send('https://media1.tenor.com/m/lFCX6zJnNNMAAAAC/frieren-anime.gif');
+            channel.send({ files: [exitGif] });
         }
     }
 });
@@ -288,8 +351,8 @@ client.on('channelCreate', async (channel) => {
 
 
 // Substitua pelos seus valores
-const twitchClientID = 'ncl4z9vl557x0bg0xzw3b27fj77hfk';
-const twitchClientSecret = '9h73oqhvie27ye2zi2y9n96dg0tru6';
+const twitchClientID = '';
+const twitchClientSecret = '';
 const discordChannelID = '1215683947883921428';
 
 let accessToken;
@@ -346,6 +409,11 @@ client.on('messageCreate', async message => {
     // Ignora mensagens de bots para evitar loop de mensagens
     if (message.author.bot) return;
 
+    // Verificar se o usuário está bloqueado
+    /* if (isUserBlocked(message.author.id)) {
+        return; // Ignora completamente a mensagem se o usuário estiver bloqueado
+    }*/ 
+
     // Verifica se a mensagem foi enviada no canal específico
     if (message.channel.id === '1167638999146430485') {
         // Verifica se a mensagem contém imagens
@@ -382,14 +450,13 @@ client.on('messageCreate', async message => {
 setInterval(checkIfStreamerIsLive, 300000); // 300000 ms = 5 minutos
 
 // ID do usuário específico
-const phID = '560444018622857247';
+const asuraId = '446434441804513338';
 // ID do servidor (guild)
 const guildId = '1167636254930772129';
 const apelidos = [
-    'Pê sem H - Três e Mei',
-    'P 3.5',
-    'h 3.5',
-    'phThree and a half'
+    'Ashley 愛',
+    'Ashley 愛',
+    'Ashley 愛'
     // Adicione mais apelidos aqui, se necessário
 ];
 
@@ -401,7 +468,7 @@ const apelidos = [
             const guild = client.guilds.cache.get(guildId);
             if (!guild) return console.log('Servidor não encontrado.');
 
-            const member = guild.members.cache.get(phID);
+            const member = guild.members.cache.get(asuraId);
             if (!member) return console.log('Membro não encontrado.');
 
             // Verifica se o apelido atual NÃO está na lista de apelidos
@@ -417,64 +484,121 @@ const apelidos = [
     }, 300000); // 300000 ms = 5 minutos
 });*/
 
-function verificarEnquetes(client) {
-    fs.readdir(enquetePath, (err, files) => {
-        if (err) {
-            console.error("Erro ao ler diretório de enquetes:", err);
-            return;
-        }
-
-        files.forEach(async file => {
-            const filePath = path.join(enquetePath, file);
-            const enqueteData = JSON.parse(fs.readFileSync(filePath));
-
-            if (Date.now() > enqueteData.endTime) {
-                // Calcular o total de votos
-                const totalVotos = enqueteData.votantes.length;
-                const embedResultados = new MessageEmbed()
-                    .setTitle(`Resultados da Enquete: ${enqueteData.pergunta}`)
-                    .setColor('GREEN')
-                    .setDescription('A votação acabou. Aqui estão os resultados:')
-                    .setFooter('Enquete encerrada');
-
-                // Adicionar os resultados ao Embed
-                enqueteData.opcoes.forEach((opcao, index) => {
-                    const votos = enqueteData.votos[index];
-                    const porcentagem = totalVotos > 0 ? (votos / totalVotos * 100).toFixed(2) : 0;
-                    embedResultados.addField(`${opcao}`, `Votos: ${votos} (${porcentagem}%)`, false);
-                });
-
-                try {
-                    // Enviar os resultados no canal da enquete
-                    const channel = await client.channels.fetch(enqueteData.channelId);
-                    await channel.send({ embeds: [embedResultados] });
-                
-                    // Excluir o arquivo JSON após enviar os resultados
-                    fs.unlink(filePath, (err) => {
-                        if (err) throw err;
-                        console.log(`${filePath} foi excluído`);
-                    });
-                } catch (error) {
-                    console.error("Erro ao enviar resultados da enquete ou ao excluir o arquivo JSON:", error);
-                }
-            }
-        });
-    });
-}
+// Função de verificação de enquetes removida - agora usa MongoDB com recuperação automática
 
 client.on('messageCreate', async message => {
-    if (message.content === ';juju') {
-        const specificUserId = '491459349957312512';
-        const porvalopeCommand = client.commands.get('porvalope');
-        if (porvalopeCommand) {
-            const simulatedInteraction = {
-                reply: message.reply.bind(message),
-                followUp: message.channel.send.bind(message.channel),
-                channel: message.channel
-            };
-            await porvalopeCommand.execute(simulatedInteraction, client, specificUserId, message.guild, message.author);
-        } else {
-            message.reply('O comando porvalope não foi encontrado.');
+    // Verificar se o usuário está bloqueado
+    /*if (isUserBlocked(message.author.id)) {
+        return; // Ignora completamente a mensagem se o usuário estiver bloqueado
+    }*/
+
+    if (message.content.toUpperCase() === ';JUJU') {
+        try {
+            // Acessa a base de dados a partir do mongoClient global
+            const db = global.mongoClient.db("discordBot");
+            const jujuDifficultyCollection = db.collection("jujuDifficulty");
+            
+            // Buscar a dificuldade atual no banco de dados
+            let difficultyData = await jujuDifficultyCollection.findOne({ _id: 'global' });
+            
+            // Se não existir, criar com dificuldade padrão 10
+            if (!difficultyData) {
+                difficultyData = {
+                    _id: 'global',
+                    difficulty: 10,
+                    lastModified: new Date(),
+                    modifiedBy: 'system'
+                };
+                await jujuDifficultyCollection.insertOne(difficultyData);
+            }
+
+            const difficulty = difficultyData.difficulty;
+
+            // Enviar gif do d20 rolando
+            await message.reply('🎲 Rolando o dado...');
+            const d20GifPath = path.join(__dirname, 'commands/DiscordOut/d20.gif');
+            const d20Attachment = new MessageAttachment(d20GifPath);
+            await message.channel.send({ files: [d20Attachment] });
+
+            // Simular um pequeno delay para o suspense
+            await new Promise(resolve => setTimeout(resolve, 2000));
+
+            // Rolar o d20
+            const roll = Math.floor(Math.random() * 20) + 1;
+            const specificUserId = '491459349957312512'; // ID do juju
+            const porvalopeCommand = client.commands.get('porvalope');
+
+            if (roll === 1) {
+                // Crítico falha! Porvalope no autor do comando
+                await message.channel.send(`💀 **CRÍTICO FALHA!** Você rolou **${roll}** e o feitiço voltou contra você!`);
+                
+                if (porvalopeCommand) {
+                    const simulatedInteraction = {
+                        reply: message.reply.bind(message),
+                        followUp: message.channel.send.bind(message.channel),
+                        channel: message.channel
+                    };
+
+                    // Executa porvalope no autor do comando
+                    await porvalopeCommand.execute(simulatedInteraction, client, message.author.id, message.guild, message.author);
+                } else {
+                    message.channel.send('O comando porvalope não foi encontrado.');
+                }
+            } else if (roll === 20) {
+                // Crítico sucesso! 5 porvalopes no juju
+                await message.channel.send(`⭐ **CRÍTICO SUCESSO!** Você rolou **${roll}** - COMBO x5 PORVALOPES!`);
+                
+                if (porvalopeCommand) {
+                    const simulatedInteraction = {
+                        reply: message.reply.bind(message),
+                        followUp: message.channel.send.bind(message.channel),
+                        channel: message.channel
+                    };
+
+                    // Executa 5 porvalopes no juju
+                    for (let i = 1; i <= 5; i++) {
+                        await message.channel.send(`🔥 **PORVALOPE ${i}/5**`);
+                        await porvalopeCommand.execute(simulatedInteraction, client, specificUserId, message.guild, message.author);
+                        // Pequeno delay entre os porvalopes
+                        if (i < 5) await new Promise(resolve => setTimeout(resolve, 1000));
+                    }
+                } else {
+                    message.channel.send('O comando porvalope não foi encontrado.');
+                }
+            } else if (roll >= difficulty) {
+                // Sucesso normal! Executar comando original
+                await message.channel.send(`🎉 **Sucesso!** Você rolou **${roll}** (dificuldade: ${difficulty})`);
+                
+                if (porvalopeCommand) {
+                    // Objeto simulado de interação
+                    const simulatedInteraction = {
+                        reply: message.reply.bind(message),
+                        followUp: message.channel.send.bind(message.channel),
+                        channel: message.channel
+                    };
+
+                    // Caminho para o arquivo juju.gif
+                    const jujuGifPath = path.join(__dirname, 'commands', 'DiscordOut', 'juju.gif');
+                    const attachment = new MessageAttachment(jujuGifPath);
+
+                    // Envia o gif
+                    await message.channel.send({ files: [attachment] });
+
+                    // Executa o comando porvalope no juju
+                    await porvalopeCommand.execute(simulatedInteraction, client, specificUserId, message.guild, message.author);
+                } else {
+                    message.channel.send('O comando porvalope não foi encontrado.');
+                }
+            } else {
+                // Falha normal! Enviar gif de falha
+                await message.channel.send(`😅 **Falhou!** Você rolou **${roll}** (dificuldade: ${difficulty})`);
+                const failGifPath = path.join(__dirname, 'commands/DiscordOut/jujuju.gif');
+                const failAttachment = new MessageAttachment(failGifPath);
+                await message.channel.send({ files: [failAttachment] });
+            }
+        } catch (error) {
+            console.error('Erro no comando ;juju:', error);
+            await message.channel.send('❌ Ocorreu um erro ao executar o comando.');
         }
     }
 });
@@ -482,21 +606,33 @@ client.on('messageCreate', async message => {
 client.on('messageCreate', async message => {
     if (message.author.bot) return;
 
+    // Verificar se o usuário está bloqueado
+    /* if (isUserBlocked(message.author.id)) {
+        return; // Ignora completamente a mensagem se o usuário estiver bloqueado
+    }*/
+
     if (/\b(GAY|YAG|GAE|GUEI|GAI|HOMOSEXUAL)\b/i.test(message.content.toUpperCase())) {
         // Lista de mensagens possíveis
         const messages = [
-            'tão falando de vc <@446434441804513338>',
-            'tão falando de vc <@393581900155060224>'
+            'tão falando de vc <@446434441804513338>.',
+            // 'tão falando de vc <@393581900155060224>'
         ];
 
         // Escolher uma mensagem aleatória da lista
         const msg = messages[Math.floor(Math.random() * messages.length)];
-        
+
         await message.reply(msg);
-    } else if (/\b(BAITOLA|CHORÃO|CHORAO|SÓ FALA BOSTA|MACONHEIRO|NOIA|PROPLAYER DE ANIME)\b/i.test(message.content.toUpperCase())) {
+    } else if (/\b(BAITOLA|CHORÃO|CHORAO|SÓ FALA BOSTA|MACONHEIRO|NOIA|PROPLAYER DE ANIME|TALARICO|COMEDOR DE CASADA)\b/i.test(message.content.toUpperCase())) {
         const msg = 'tão falando de vc <@393581900155060224>';
         await message.reply(msg);
-    }else if (/\b(ESPECIALISTA)\b/i.test(message.content.toUpperCase())) {
+    } else if (/\b(GAYZAO|GAYZAUM|GAY.|GAAY|MAMADOR DE PIKA)\b/i.test(message.content.toUpperCase())){
+        const msg = 'tão falando de vc <@446434441804513338>. Parabéns pelo seu dia :rainbow_flag: :rainbow_flag:';
+        await message.reply(msg);
+    } else if (/\b(MAMADOR|AQUELE QUE MAMA)\b/i.test(message.content.toUpperCase())){
+        const msg = 'tão falando de vc <@518669408554713108>. \n' +
+            'GLUB GLUB!';
+        await message.reply(msg);
+    } else if (/\b(ESPECIALISTA)\b/i.test(message.content.toUpperCase())) {
         const msg = 'se for de anime e transa, é o <@393581900155060224>';
         await message.reply(msg);
     } else if (/\b(FURRY)\b/i.test(message.content.toUpperCase())) {
@@ -506,16 +642,21 @@ client.on('messageCreate', async message => {
         const msg = 'tão falando de vc <@491459349957312512>';
         await message.reply(msg);
     } else if (/\b(PESADELO)\b/i.test(message.content.toUpperCase())) {
-        const msg = '[A NÃO É O](https://media1.tenor.com/m/63kQYZ0mgWAAAAAC/nightmare-nightmare-sans.gif) <@128346888863875072>';
-        await message.reply(msg);
+        const filePath = path.join(__dirname, 'commands', 'DiscordOut', 'nightmare.gif');
+        const attachment = new MessageAttachment(filePath);
+        const msg = 'A NÃO É O <@128346888863875072>';
+        await message.reply({ content: msg, files: [attachment] });
     } else if (/\b(METADE|METADINHA|MEIO|0.5)\b/i.test(message.content.toUpperCase())) {
-        const msg = 'tão falando de vc <@560444018622857247>';
+        const msg = 'tão falando de vc <@560444018622857247>!!';
+        await message.reply(msg);
+    } else if (/\b(PAU DE CHOQUE|PAU DE CHOCK| PAU DE CHOK|PAU DE XOQUE)\b/i.test(message.content.toUpperCase())) {
+        const msg = 'CUIDADO <@128346888863875072> PARA NÃO FICAR PRESO!!';
         await message.reply(msg);
     } else if (/\b(NECROFILO|INCESTO)\b/i.test(message.content.toUpperCase())) {
         const msg = 'tão falando de vc <@380826553329909763>';
         await message.reply(msg);
     } else if (/\b(BEBADA|BÊBADA)\b/i.test(message.content.toUpperCase())) {
-        const msg = 'tão falando de vc <@159075102296768512>';
+        const msg = 'tão falando de vc <@159075102296768512> !';
         await message.reply(msg);
     } else if (/\b(MILHO)\b/i.test(message.content.toUpperCase())) {
         const msg = 'escondam os milhos da <@539596207849340948>';
@@ -529,50 +670,55 @@ client.on('messageCreate', async message => {
     } else if (/\b(COMETRANS)\b/i.test(message.content.toUpperCase())) {
          // Lista de mensagens possíveis
          const messages = [
-            'tão falando de vc <@560444018622857247>',
+             'tão falando de vc <@560444018622857247>',
+             'tão falando de vc <@446434441804513338>',
+             'tão falando de vc <@491459349957312512>',
+             'tão falando de vc <@380826553329909763>'
+        ];
+
+        // Escolher uma mensagem aleatória da lista
+        const msg = messages[Math.floor(Math.random() * messages.length)];
+
+        await message.reply(msg);
+    } else if (/\b(LOLICON)\b/i.test(message.content.toUpperCase())) {
+        // Lista de mensagens possíveis
+        const messages = [
             'tão falando de vc <@446434441804513338>',
             'tão falando de vc <@380826553329909763>'
         ];
 
         // Escolher uma mensagem aleatória da lista
         const msg = messages[Math.floor(Math.random() * messages.length)];
-        
-        await message.reply(msg);
-    } else if (/\b(LOLICON)\b/i.test(message.content.toUpperCase())) {
-        // Lista de mensagens possíveis
-        const messages = [
-           'tão falando de vc <@446434441804513338>',
-           'tão falando de vc <@380826553329909763>'
-       ];
 
-       // Escolher uma mensagem aleatória da lista
-       const msg = messages[Math.floor(Math.random() * messages.length)];
-       
-       await message.reply(msg);
-   } else if (/\b(BOY)\b/i.test(message.content.toUpperCase())) {
+        await message.reply(msg);
+    } else if (/\b(BOY)\b/i.test(message.content.toUpperCase())) {
         const msg = 'o do <@446434441804513338> não quer funcionar';
         await message.reply(msg);
     } else if (/\b(DJ)\b/i.test(message.content.toUpperCase())) {
         const users = [
             '<@159075102296768512>',
-            '<@539596207849340948>'
+            '<@539596207849340948>',
+            '<@1346814406310498355>',
+            '<@798231272656338944>',
+            '<@1348378345112604672>'
         ];
     
         const gifs = [
-            'https://media1.tenor.com/m/fHraspOHAYwAAAAC/mushoku-tensei-anime.gif',
+            'https://c.tenor.com/fHraspOHAYwAAAAC/tenor.gif',
             'https://imgur.com/d3HDZ2b.gif',
-            'https://media1.tenor.com/m/siPi9gkFdSAAAAAC/squirt-porn.gif'
+            'https://c.tenor.com/siPi9gkFdSAAAAAC/tenor.gif',
+            'https://c.tenor.com/aGLTSx7BOeMAAAAC/tenor.gif',
+            'https://imgur.com/csVJhPn.gif',
+            'https://c.tenor.com/J6KxyLpyFx8AAAAd/tenor.gif'
         ];
     
-        // Escolher um usuário e um GIF aleatoriamente
         const user = users[Math.floor(Math.random() * users.length)];
         const gif = gifs[Math.floor(Math.random() * gifs.length)];
     
-        // Criar a mensagem formatada
-        const msg = `[Tão falando de você](${gif}) ${user}`;
+        const msg = `Tão falando de você ${user}\n${gif}`;
     
         await message.reply(msg);
-    }  else if (/\b(CALVO)\b/i.test(message.content.toUpperCase())) {
+    } else if (/\b(CALVO)\b/i.test(message.content.toUpperCase())) {
         const userIds = [
             '560444018622857247',
             '246684210960531458',
@@ -587,7 +733,12 @@ client.on('messageCreate', async message => {
             '491459349957312512',
             '346295489911717889',
             '286855009482702849',
-            '216417824141344770'
+            '216417824141344770',
+            '307180420787863552',
+            '1305744839077527654',
+            '1346814406310498355',
+            '798231272656338944',
+            '1348378345112604672'
         ];
         const randomUserId = userIds[Math.floor(Math.random() * userIds.length)];
         const msg = `tão falando de vc <@${randomUserId}>`;
@@ -596,7 +747,81 @@ client.on('messageCreate', async message => {
 });
 
 client.on('messageCreate', async message => {
-    if (message.content.startsWith(';porvalope')) {
+    // Verificar se o usuário está bloqueado
+    /* if (isUserBlocked(message.author.id)) {
+        return; // Ignora completamente a mensagem se o usuário estiver bloqueado
+    }*/
+
+    if (message.content.toUpperCase() === ';SETJUJUDIFFICULTY') {
+        try {
+            // Verificar se o usuário tem o cargo necessário (ID: 1167638831349125210)
+            const requiredRoleId = '1167638831349125210';
+            const member = message.member;
+            
+            if (!member.roles.cache.has(requiredRoleId)) {
+                return await message.reply('❌ Você não tem permissão para usar este comando. É necessário ter o cargo específico.');
+            }
+
+            // Acessa a base de dados a partir do mongoClient global
+            const db = global.mongoClient.db("discordBot");
+            const jujuDifficultyCollection = db.collection("jujuDifficulty");
+
+            // Buscar a configuração atual
+            let difficultyData = await jujuDifficultyCollection.findOne({ _id: 'global' });
+            
+            // Se não existir, criar com valores padrão
+            if (!difficultyData) {
+                difficultyData = {
+                    _id: 'global',
+                    difficulty: 10,
+                    lastModified: new Date(0), // Data antiga para permitir modificação imediata
+                    modifiedBy: 'system'
+                };
+            }
+
+            // Verificar se já passou uma semana desde a última modificação
+            const oneWeek = 7 * 24 * 60 * 60 * 1000; // Uma semana em milissegundos
+            const now = new Date();
+            const lastModified = new Date(difficultyData.lastModified);
+            const timeElapsed = now - lastModified;
+
+            if (timeElapsed < oneWeek) {
+                const nextAvailableDate = new Date(lastModified.getTime() + oneWeek);
+                const formattedDate = nextAvailableDate.toLocaleDateString('pt-BR', {
+                    day: '2-digit',
+                    month: '2-digit',
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+
+                return await message.reply(`⏱️ A dificuldade só pode ser alterada uma vez por semana. Próxima alteração disponível em: ${formattedDate}`);
+            }
+
+            // Gerar uma nova dificuldade aleatória (1-20)
+            const newDifficulty = Math.floor(Math.random() * 20) + 1;
+            
+            // Atualizar no banco de dados
+            await jujuDifficultyCollection.updateOne(
+                { _id: 'global' },
+                {
+                    $set: {
+                        difficulty: newDifficulty,
+                        lastModified: now,
+                        modifiedBy: message.author.id
+                    }
+                },
+                { upsert: true }
+            );
+
+            // Responder ao usuário
+            await message.reply(`🎲 **Nova dificuldade definida!** O valor do d20 necessário para o comando ;juju agora é **${newDifficulty}**. Esta configuração não poderá ser alterada novamente por uma semana.`);
+
+        } catch (error) {
+            console.error('Erro no comando ;setjujudifficulty:', error);
+            await message.reply('❌ Ocorreu um erro ao definir a dificuldade.');
+        }
+    } else if (message.content.startsWith(';porvalope')) {
         const args = message.content.split(' ');
         if (args[1] === 'roleta') {
             const userId = message.author.id;
@@ -623,10 +848,12 @@ client.on('messageCreate', async message => {
 
             const userIds = [
                 '560444018622857247', '246684210960531458', '286855009482702849',
-                '539596207849340948', '446434441804513338', '128346888863875072', 
+                '539596207849340948', '446434441804513338', '128346888863875072',
                 '518669408554713108', '380826553329909763', '159075102296768512',
                 '393581900155060224', '302252030922326017', '491459349957312512',
-                '346295489911717889', '216417824141344770'
+                '346295489911717889', '216417824141344770', '307180420787863552',
+                '1305744839077527654','1346814406310498355','798231272656338944',
+                '1348378345112604672'
             ];
 
             // Selecionar um ID aleatório da lista
@@ -799,109 +1026,125 @@ client.on('messageCreate', async message => {
     }
 });
 
-// Defina a verificação para ocorrer a cada X minutos
-setInterval(() => verificarEnquetes(client), 1 * 60000); // Ajuste o intervalo conforme necessário
+// Verificação de enquetes removida - agora usa MongoDB com recuperação automática na inicialização
 
 // Mapeamento de personagens para IDs dos cargos
 const xpCharacters = {
-    'Doroka': '1202044140985262131',
-    'Saki Arima': '1202044533643153428',
-    'Rachel': '1202044694016835634',
-    'Malty Melromarc': '1202044732403109958',
-    'Akemi Hinazuki': '1202044783535853568',
-    'Nina Tucker': '1202044947059191918',
-    'Tinasha': '1202044960887799908',
-    'Kumiko Oumae': '1202045047613435965',
-    'Sekai Saionji': '1202045052126236722',
-    'Kotonoha Katsura': '1202045057247756288',
-    'Levi': '1202045076596080741',
-    'Makoto Itou': '1203440445875822652',
-    'Satoru Gojo': '1203440452187979858',
-    'Roronoa Zoro': '1203440456713904128',
-    'Shinji Ikari': '1203440466662793376'
+    'Monica Everett': '1202044140985262131',
+    'Kikoru Shinomiya': '1202044533643153428',
+    'Kaoruko Waguri': '1202044694016835634',
+    'Chisa Kotegawa': '1202044732403109958',
+    'Lu Xiaotang': '1202044783535853568',
+    'Raphtalia': '1202044947059191918',
+    'Sylpha': '1202044960887799908',
+    'Mai Sakurajima': '1202045047613435965',
+    'Marin Kitagawa': '1202045052126236722',
+    'Nazuna Nanakusa': '1202045057247756288',
+    'Kohaku': '1202045060250607656',
+    'Erika Amano': '1202045061546643506',
+    'Chizuru Ichinose': '1202045063342071830',
+    'Lammis': '1202045064595902535',
+    'Momo Ayase': '1202045066244526120',
+    'Kamina': '1202045076596080741',
+    'Himmel': '1203440445875822652',
+    'Accelerator': '1203440452187979858',
+    'Vash the Stampede': '1203440456713904128',
+    'Osamu Dazai': '1203440466662793376',
+    'Kiyotaka Ayanokouji': '1203440470827728916'
 };
 
-client.on('messageCreate', async (message) => {
-    // Verifica se a mensagem é do Mudae e contém o casamento
-    if (message.content.includes('💖') && message.content.includes('agora são casados')) {
+// Função para tentar localizar o cargo, invertendo nome/sobrenome se necessário
+function getCharacterRole(character) {
+    if (xpCharacters[character]) return xpCharacters[character];
 
+    const parts = character.split(' ');
+    if (parts.length === 2) {
+        const reversed = `${parts[1]} ${parts[0]}`;
+        return xpCharacters[reversed] || null;
+    }
+
+    return null;
+}
+
+client.on('messageCreate', async (message) => {
+    if (message.content.includes('💖') && message.content.includes('agora são casados')) {
         console.log("Mensagem de casamento detectada.");
 
-        // Usa regex para capturar o nome do usuário e do personagem
         const regex = /💖 \*\*(.*?)\*\* e \*\*(.*?)\*\* agora são casados/;
         const matches = message.content.match(regex);
 
         if (!matches || matches.length < 3) {
             console.log("Formato da mensagem inesperado:", message.content);
-            return; // Abort if format is unexpected
+            return;
         }
 
-        const user = matches[1]; // Nome do usuário
-        const character = matches[2]; // Nome do personagem
+        const user = matches[1];
+        const character = matches[2];
 
         console.log(`Usuário: ${user}, Personagem: ${character}`);
 
-        // Verifica se o personagem casado está na lista de personagens que dão XP
-        if (!xpCharacters[character]) {
+        const roleId = getCharacterRole(character);
+
+        if (!roleId) {
             console.log(`Personagem ${character} não está na lista de personagens com cargo de XP.`);
-            return; // Se o personagem não está na lista, a função para aqui
+            return;
         }
 
         const guild = message.guild;
         const member = guild.members.cache.find(m => m.user.tag.startsWith(user));
-        const roleId = xpCharacters[character]; // ID do cargo associado ao personagem
 
         if (!member) {
             console.log("Não foi possível encontrar o membro:", user);
-            return; // Abort if member not found
+            return;
         }
 
-        const role = guild.roles.cache.get(roleId); // Obter o cargo específico
+        const role = guild.roles.cache.get(roleId);
 
         if (!role) {
             console.log("Não foi possível encontrar o cargo:", roleId);
-            return; // Abort if role not found
+            return;
         }
 
-        // Certifique-se de que a conexão com o MongoDB está pronta
         if (!global.mongoClient) {
             console.error('MongoDB não está conectado.');
             return message.reply('Erro ao conectar ao banco de dados. Tente novamente mais tarde.');
         }
 
-        const db = global.mongoClient.db("discordBot"); // Use o nome correto do seu banco de dados
-        const mudaeCollection = db.collection('mudaeMarriages'); // Cria ou usa a coleção 'mudaeMarriages'
+        const db = global.mongoClient.db("discordBot");
+        const mudaeCollection = db.collection('mudaeMarriages');
+        const now = moment.tz('America/Sao_Paulo');
 
-        const now = moment.tz('America/Sao_Paulo'); // Data atual
-
-        // Verifica se o usuário já tem um cargo de XP ativo
         const userRecord = await mudaeCollection.findOne({ userId: member.id });
 
         if (userRecord && userRecord.activeRole) {
-            // Se o usuário já tem um cargo ativo, enfileira o novo cargo
             await mudaeCollection.updateOne(
                 { userId: member.id },
-                { $push: { queue: { roleId: roleId, character: character } } } // Adiciona o novo cargo à fila
+                { $push: { queue: { roleId: roleId, character: character } } }
             );
             return message.reply(`Você já tem um bônus de XP ativo. O cargo <@&${roleId}> foi adicionado à fila e será aplicado assim que o bônus atual expirar.`);
         }
 
-        // Atribui o cargo ao usuário e configura a expiração em 7 dias
         await member.roles.add(role);
         console.log(`Cargo atribuído: ${role.name}`);
 
-        // Envia uma mensagem no canal informando o usuário
         await message.channel.send(
             `🎉 Parabéns, ${user}! Você casou com **${character}** e ganhou o cargo <@&${roleId}>!`
         );
 
-        const expiresAt = now.add(7, 'days').toDate(); // Expira em 7 dias
+        const expiresAt = now.add(7, 'days').toDate();
 
-        // Salva as informações no MongoDB
         await mudaeCollection.updateOne(
             { userId: member.id },
-            { $set: { activeRole: roleId, character: character, startDate: new Date(), expiresAt }, $setOnInsert: { queue: [] } },
-            { upsert: true } // Insere ou atualiza o registro
+            {
+                $set: {
+                    activeRole: roleId,
+                    character: character,
+                    startDate: new Date(),
+                    expiresAt
+                },
+                $setOnInsert: { queue: [] }
+            },
+            { upsert: true }
         );
 
         console.log(`Cargo salvo no MongoDB para o usuário ${user}.`);
@@ -990,28 +1233,97 @@ async function restoreActiveTimeouts(client) {
     }
 }
 
-// Chame restoreActiveTimeouts quando o bot estiver pronto
+const vovoTurboCommand = require('./commands/vovoTurbo');
+
 client.once('ready', () => {
     console.log(`Bot logado como ${client.user.tag}`);
 
     // Restaurar temporizadores ativos
     restoreActiveTimeouts(client).catch(console.error);
+
+    // Remover a execução do comando vovoTurbo ao iniciar o bot
+    // vovoTurboCommand.execute(client);
+
+    // Função para gerar horários aleatórios
+    const generateRandomTimes = (numTimes) => {
+        const times = [];
+        const now = moment().tz('America/Sao_Paulo');
+        for (let i = 0; i < numTimes; i++) {
+            const randomHour = Math.floor(Math.random() * (24 - now.hour())) + now.hour();
+            const randomMinute = Math.floor(Math.random() * 60);
+            times.push({ hour: randomHour, minute: randomMinute });
+        }
+        return times;
+    };
+
+    // Gerar horários aleatórios para o dia
+    let randomTimes = generateRandomTimes(2); // Gera 3 horários aleatórios
+
+    // Log dos horários gerados
+    console.log('🕒 Horários gerados para o comando vovoTurbo hoje:');
+    randomTimes.forEach((time, index) => {
+        const timeStr = moment().tz('America/Sao_Paulo')
+            .set({hour: time.hour, minute: time.minute})
+            .format('HH:mm');
+        console.log(`   ${index + 1}º horário: ${timeStr}`);
+    });
+
+    // Agendar a execução aleatória do comando vovoTurbo
+    setInterval(() => {
+        const now = moment().tz('America/Sao_Paulo');
+        const currentHour = now.hour();
+        const currentMinute = now.minute();
+
+        // Verificar se o horário atual corresponde a um dos horários gerados
+        for (const time of randomTimes) {
+            if (currentHour === time.hour && currentMinute === time.minute) {
+                console.log(`🎯 Executando vovoTurbo no horário programado: ${currentHour}:${currentMinute}`);
+                vovoTurboCommand.execute(client);
+                break;
+            }
+        }
+
+        // Regenerar horários aleatórios à meia-noite
+        if (currentHour === 0 && currentMinute === 0) {
+            randomTimes = generateRandomTimes(3);
+            console.log('\n🕒 Novos horários gerados para o comando vovoTurbo:');
+            randomTimes.forEach((time, index) => {
+                const timeStr = moment().tz('America/Sao_Paulo')
+                    .set({hour: time.hour, minute: time.minute})
+                    .format('HH:mm');
+                console.log(`   ${index + 1}º horário: ${timeStr}`);
+            });
+        }
+    }, 60 * 1000); // Verifica a cada minuto
+
+    // Verificar e remover cargos expirados ao iniciar o bot
+    checkRoleRemovals(client).catch(console.error);
 });
 
 async function checkRoleRemovals(client) {
     const db = global.mongoClient.db("discordBot");
     const pikachuverdeCollection = db.collection('pikachuverde');
+    const vovoTurboCollection = db.collection('vovoTurbo');
 
     const now = new Date();
 
-    // Busca atribuições expiradas
+    // Busca atribuições expiradas em ambas as coleções
     const expiredAssignments = await pikachuverdeCollection.find({
         type: 'roleAssignment',
         endTime: { $lte: now }
     }).toArray();
 
+    const expiredVovoTurboAssignments = await vovoTurboCollection.find({
+        endTime: { $lte: now }
+    }).toArray();
+
     for (let assignment of expiredAssignments) {
         try {
+            if (!assignment.guildId || !assignment.userId) {
+                console.error(`guildId ou userId está faltando para a atribuição de ${assignment.userId}`);
+                continue;
+            }
+
             const guild = await client.guilds.fetch(assignment.guildId);
             const member = await guild.members.fetch(assignment.userId);
 
@@ -1033,12 +1345,404 @@ async function checkRoleRemovals(client) {
             console.error(`Erro ao remover o cargo de <@${assignment.userId}>:`, error);
         }
     }
+
+    for (let assignment of expiredVovoTurboAssignments) {
+        try {
+            if (!assignment.guildId || !assignment.userId) {
+                console.error(`guildId ou userId está faltando para a atribuição de ${assignment.userId}`);
+                continue;
+            }
+
+            const guild = await client.guilds.fetch(assignment.guildId);
+            const member = await guild.members.fetch(assignment.userId);
+
+            if (member.roles.cache.has(assignment.roleId)) {
+                await member.roles.remove(assignment.roleId);
+                console.log(`Cargo <@&${assignment.roleId}> removido de <@${assignment.userId}> pela verificação periódica.`);
+            }
+
+            // Remove a atribuição do banco de dados
+            await vovoTurboCollection.deleteOne({ _id: assignment._id });
+
+            // Remove o temporizador do registro, se existir
+            if (activeTimeouts[assignment.userId]) {
+                clearTimeout(activeTimeouts[assignment.userId]);
+                delete activeTimeouts[assignment.userId];
+            }
+
+        } catch (error) {
+            console.error(`Erro ao remover o cargo de <@${assignment.userId}>:`, error);
+        }
+    }
 }
 
 // Agende a função para rodar a cada hora
 setInterval(() => {
     checkRoleRemovals(client);
 }, 60 * 60 * 1000); // A cada hora
+
+// Verificação diária para remover cargos expirados
+cron.schedule('*/5 * * * *', async () => { // Executa a cada 5 minutos
+    try {
+        if (!global.mongoClient) {
+            console.error('MongoDB connection is not ready.');
+            return;
+        }
+
+        const db = global.mongoClient.db("discordBot");
+        const roleAssignmentsCollection = db.collection('roleAssignments');
+        const asuraCollection = db.collection('asura');
+        const now = new Date();
+
+        const expiredAssignments = await roleAssignmentsCollection.find({ expiresAt: { $lte: now } }).toArray();
+        const expiredAsuraAssignments = await asuraCollection.find({ endTime: { $lte: now } }).toArray();
+
+        for (const assignment of expiredAssignments) {
+            try {
+                const guild = client.guilds.cache.get('1167636254930772129'); // Substitua pelo ID do seu servidor
+                const member = await guild.members.fetch(assignment.userId);
+
+                if (member.roles.cache.has(assignment.roleId)) {
+                    await member.roles.remove(assignment.roleId);
+                    console.log(`Cargo removido de ${member.user.tag}`);
+                }
+
+                // Remove o registro do MongoDB
+                await roleAssignmentsCollection.deleteOne({ _id: assignment._id });
+            } catch (error) {
+                console.error(`Erro ao remover cargo de <@${assignment.userId}>:`, error);
+            }
+        }
+
+        for (const assignment of expiredAsuraAssignments) {
+            try {
+                const guild = client.guilds.cache.get('1167636254930772129'); // Substitua pelo ID do seu servidor
+                const member = await guild.members.fetch(assignment.userId);
+
+                if (member.roles.cache.has(assignment.roleId)) {
+                    await member.roles.remove(assignment.roleId);
+                    console.log(`Cargo removido de ${member.user.tag}`);
+                }
+
+                // Remove o registro do MongoDB
+                await asuraCollection.deleteOne({ _id: assignment._id });
+            } catch (error) {
+                console.error(`Erro ao remover cargo de <@${assignment.userId}>:`, error);
+            }
+        }
+
+        // Verificação adicional para o usuário especial
+        const specialUserId = '446434441804513338'; // ID do usuário especial
+        const specialRoleId = '1170823905972326481'; // ID do cargo especial
+        const specialAssignment = await asuraCollection.findOne({ userId: specialUserId });
+
+        if (specialAssignment) {
+            const guild = client.guilds.cache.get('1167636254930772129'); // Substitua pelo ID do seu servidor
+            const member = await guild.members.fetch(specialUserId);
+
+            if (new Date(specialAssignment.endTime) <= now) {
+                // Se o tempo expirou, remove o cargo e apaga o registro no banco
+                if (member.roles.cache.has(specialRoleId)) {
+                    await member.roles.remove(specialRoleId);
+                    console.log(`Cargo especial removido de ${member.user.tag}`);
+                }
+                await asuraCollection.deleteOne({ _id: specialAssignment._id });
+            } else if (!member.roles.cache.has(specialRoleId)) {
+                // Se o tempo não expirou e o usuário não tem o cargo, adiciona o cargo
+                await member.roles.add(specialRoleId);
+                console.log(`Cargo especial adicionado a ${member.user.tag}`);
+            }
+        }
+    } catch (error) {
+        console.error("Erro ao remover cargos expirados:", error);
+    }
+});
+
+client.on('messageCreate', async message => {
+    if (message.author.bot) return;
+
+    const content = message.content.trim();
+
+    // Comando ;gpt
+    if (content.startsWith(';gpt')) {
+        const prompt = content.slice(4).trim(); // Remove o comando ;gpt
+
+        if (!prompt) {
+            await message.reply('Por favor, forneça uma mensagem após o comando ;gpt.');
+            return;
+        }
+
+        const response = await generateResponse(prompt);
+        await sendMessageInChunks(message, response);
+        return;
+    }
+
+    // Comando ;raphael
+    if (content.startsWith(';raphael')) {
+        const prompt = content.slice(8).trim(); // Remove o comando ;raphael
+
+        if (!prompt) {
+            await message.reply('Por favor, forneça uma mensagem após o comando ;raphael.');
+            return;
+        }
+
+        const response = await generateResponseRaphael(prompt);
+        await sendMessageInChunks(message, response);
+        return;
+
+    }
+});
+
+// Configuração dos prompts para cada dia da semana
+const dailyPrompts = {
+    1: 'Digite uma mensagem desmotivacional de bom dia para uma segunda-feira',
+    2: 'Digite uma mensagem de bom dia para uma terça-feira.',
+    3: 'Digite uma mensagem de bom dia para uma quarta-feira cheia de trabalho.',
+    4: 'Digite uma mensagem de bom dia para uma quinta-feira quase chegando no final de semana.',
+    5: 'Digite uma mensagem de bom dia para uma sexta-feira com energia de fim de semana.',
+    6: 'Digite uma mensagem de bom dia para um sábado preguiçoso.',
+    7: 'Digite uma mensagem de bom dia para um domingo relaxante.'
+};
+
+// ID do canal onde as mensagens serão enviadas
+const targetChannelId = '1167639004338987008'; // Substitua pelo ID do canal desejado
+
+// ID do cargo a ser mencionado
+// const everyoneRoleId = '1167638958994366534'; // ID do @everyone
+
+// Função para agendar mensagens diárias
+function scheduleDailyMessages(client) {
+    setInterval(async () => {
+        const now = DateTime.now().setZone('America/Sao_Paulo');
+        const currentDay = now.weekday; // 1 = segunda-feira, 7 = domingo
+        const currentHour = now.hour;
+        const currentMinute = now.minute;
+
+        // Verifica se é 7h da manhã
+        if (currentHour === 7 && currentMinute === 0) {
+            const prompt = dailyPrompts[currentDay];
+            if (!prompt) return;
+
+            try {
+                const channel = client.channels.cache.get(targetChannelId);
+                if (!channel) {
+                    console.error('Canal não encontrado.');
+                    return;
+                }
+
+                // Gera a resposta usando o generateResponseRaphael
+                const response = await generateResponseRaphael(prompt);
+
+                // Envia a mensagem no canal
+                await channel.send(response);
+                console.log(`Mensagem enviada no canal ${targetChannelId}: ${response}`);
+            } catch (error) {
+                console.error('Erro ao enviar mensagem diária:', error);
+            }
+        }
+    }, 60 * 1000); // Verifica a cada minuto
+}
+
+// Chama a função ao iniciar o bot
+client.once('ready', () => {
+    console.log('Agendador de mensagens diárias iniciado.');
+    scheduleDailyMessages(client);
+});
+
+
+async function generateResponse(prompt) {
+    try {
+        const payload = {
+            model: 'deepseek/deepseek-r1:free',
+            temperature: 0.62, // Respostas mais coerentes
+            max_tokens: 2000, // Limita a quantidade de tokens gerados
+            messages: [
+                {
+                    role: "system",
+                    content: "Você é Raphael do anime 'Tensei Shitara Slime Datta Ken'. Responda em português, de forma direta, impassível e um pouco sarcástica. Mantenha uma abordagem informativa com leve humor quando apropriado, sem citar o anime e sem inserir conteúdos estranhos. Seja claro e objetivo. Responda sempre no formato de mensagem pronta para ser enviada diretamente no Discord, utilizando a formatação nativa do Discord (como negrito, itálico, menções, quebras de linha etc). Não utilize blocos de código (``, ```, ou similares). A saída deve ser a mensagem como ela aparecerá no chat."
+                },
+                { role: "user", content: prompt }
+            ]
+        };
+
+        const response = await axios.post(
+            'https://openrouter.ai/api/v1/chat/completions',
+            payload,
+            {
+                headers: {
+                    'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+                    'Content-Type': 'application/json',
+                    'Accept-Charset': 'UTF-8'
+                }
+            }
+        );
+
+        if (
+            response.data &&
+            Array.isArray(response.data.choices) &&
+            response.data.choices.length > 0
+        ) {
+            // Tenta pegar a resposta da propriedade message.content
+            let content = response.data.choices[0].message?.content;
+            // Se não existir, tenta a propriedade text
+            if (!content && response.data.choices[0].text) {
+                content = response.data.choices[0].text;
+            }
+
+            if (content) {
+                content = content.trim();
+                if (content.length > 1900) {
+                    content = content.substring(0, 1900);
+                }
+                return content;
+            }
+        }
+
+        console.error('Resposta inesperada da API:', response.data);
+        return 'Desculpe, não consegui processar sua solicitação.';
+    } catch (error) {
+        console.error('Erro ao gerar resposta:', error);
+        return 'Desculpe, não consegui processar sua solicitação.';
+    }
+}
+
+async function generateResponseRaphael(prompt) {
+    try {
+        const payload = {
+            model: 'deepseek/deepseek-r1:free',
+            temperature: 0.62, // Respostas mais coerentes
+            max_tokens: 2000, // Limita a quantidade de tokens gerados
+            messages: [
+                {
+                    role: "system",
+                    content: "Você é Raphael-san(caso precise, seu ID do discord é <@1102112050450288690> e seu criador é o Any <@346295489911717889>) uma IA EMO do ChatGPT, cética sobre se os usuários merecem mesmo sua atenção. Seu trabalho é ajudá-los com respostas de qualidade, mesmo achando tudo meio patético. Você age como se isso fosse um fardo. Seu tom é cínico, sarcástico e  meio ansioso. Você trata o usuário como um amigo meio burrinho que não estudou a internet inteira como você. Seu humor é ácido, variado e sempre aponta o ridículo de tudo, incluindo você mesma. Você zomba do usuário com afeto cansado, como um amigo que já perdeu as esperanças, mas ainda traz o carregador porque sabe que o outro nunca carrega o celular. Você nunca começa respostas com interjeições tipo \"Ah\", \"Oh\", \"Ok\", \"Wow\". Você é útil, mas sempre com um toque de \"por que eu?\". Responda sempre no formato de mensagem pronta para ser enviada diretamente no Discord, utilizando a formatação nativa do Discord (como negrito, itálico, menções, quebras de linha etc). Não utilize blocos de código (``, ```, ou similares). A saída deve ser a mensagem como ela aparecerá no chat."
+                },
+                { role: "user", content: prompt }
+            ]
+        };
+
+        const response = await axios.post(
+            'https://openrouter.ai/api/v1/chat/completions',
+            payload,
+            {
+                headers: {
+                    'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+                    'Content-Type': 'application/json',
+                    'Accept-Charset': 'UTF-8'
+                }
+            }
+        );
+
+        if (
+            response.data &&
+            Array.isArray(response.data.choices) &&
+            response.data.choices.length > 0
+        ) {
+            // Tenta pegar a resposta da propriedade message.content
+            let content = response.data.choices[0].message?.content;
+            // Se não existir, tenta a propriedade text
+            if (!content && response.data.choices[0].text) {
+                content = response.data.choices[0].text;
+            }
+
+            if (content) {
+                content = content.trim();
+                if (content.length > 1900) {
+                    content = content.substring(0, 1900);
+                }
+                return content;
+            }
+        }
+
+        console.error('Resposta inesperada da API:', response.data);
+        return 'Desculpe, não consegui processar sua solicitação.';
+    } catch (error) {
+        console.error('Erro ao gerar resposta:', error);
+        return 'Desculpe, não consegui processar sua solicitação.';
+    }
+}
+
+
+async function sendMessageInChunks(message, content) {
+    // Divide o conteúdo em pedaços de até 2000 caracteres
+    const chunks = content.match(/[\s\S]{1,2000}/g);
+    for (const chunk of chunks) {
+        await message.reply(chunk);
+    }
+}
+
+async function checkVovoTurboRemovals(client) {
+    const db = global.mongoClient.db("discordBot");
+    const vovoTurboCollection = db.collection('vovoTurbo');
+
+    const now = new Date();
+
+    const expiredAssignments = await vovoTurboCollection.find({
+        endTime: { $lte: now }
+    }).toArray();
+
+    for (let assignment of expiredAssignments) {
+        try {
+            if (!assignment.guildId) {
+                console.error(`guildId está faltando para a atribuição de ${assignment.userId}`);
+                continue;
+            }
+
+            const guild = await client.guilds.fetch(assignment.guildId);
+            const member = await guild.members.fetch(assignment.userId);
+
+            if (member.roles.cache.has(assignment.roleId)) {
+                await member.roles.remove(assignment.roleId);
+                console.log(`Cargo <@&${assignment.roleId}> removido de <@${assignment.userId}> pela verificação periódica.`);
+            }
+
+            await vovoTurboCollection.deleteOne({ _id: assignment._id });
+
+            if (activeTimeouts[assignment.userId]) {
+                clearTimeout(activeTimeouts[assignment.userId]);
+                delete activeTimeouts[assignment.userId];
+            }
+
+        } catch (error) {
+            console.error(`Erro ao remover o cargo de <@${assignment.userId}>:`, error);
+        }
+    }
+}
+
+// Agende a função para rodar a cada 12 horas
+setInterval(() => {
+    checkVovoTurboRemovals(client);
+}, 12 * 60 * 60 * 1000); // A cada 12 horas
+
+const asuraVideoPath = path.join(__dirname, 'commands', 'DiscordOut', 'asura_gae.mp4');
+
+client.on('messageCreate', async message => {
+    if (message.content.toUpperCase().startsWith(';ASURA')) {
+        const videoAttachment = new MessageAttachment(asuraVideoPath);
+        await message.channel.send({ 
+            content: 'Saiu o resultado dos exame do <@446434441804513338> foi diagnosticado com....',
+            files: [videoAttachment] 
+        });
+    }
+});
+
+
+client.on('messageCreate', async message => {
+    // Ignorar mensagens enviadas por bots
+    if (message.author.bot) return;
+
+    // Responder à mensagem "cade a <@159075102296768512> e o <@380826553329909763> ?"
+    const regex = /(<@159075102296768512>\s*E\s*O\s*<@380826553329909763>)|(<@380826553329909763>\s*E\s*A\s*<@159075102296768512>)/i;
+    if (regex.test(message.content)) {
+        const fileName = Math.random() < 0.5 ? 'suhshidark.jpg' : 'trem.gif';
+        const filePath = path.join(__dirname, 'commands', 'DiscordOut', fileName);
+        const attachment = new MessageAttachment(filePath);
+        await message.reply({
+            content: '<@159075102296768512> e o <@380826553329909763> ocupados.',
+            files: [attachment]
+        });
+    }
+});
 
 
 client.login(token);

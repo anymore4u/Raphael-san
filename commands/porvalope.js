@@ -12,7 +12,7 @@ module.exports = {
             required: true
         }
     ],
-    async execute(interaction, client, userId, guild, user) {
+    async execute(interaction, client, userId, guild, user, useFollowUp = false) {
         let targetMember = userId ? await guild.members.fetch(userId) : interaction.options.getMember('membro');
         user = user || interaction.user; // Use o usuário da interação se disponível
     
@@ -39,7 +39,11 @@ module.exports = {
         const stickerAttachment = new MessageAttachment(filePath);
 
         // Crie uma mensagem personalizada
-        await interaction.reply(messageContent);
+        if (useFollowUp) {
+            await interaction.followUp(messageContent);
+        } else {
+            await interaction.reply(messageContent);
+        }
 
         // Modificar messageContent para DM
         const messageContentForDM = `<@${user.id}> te porvalopou!\n\ ${messageContent}`;

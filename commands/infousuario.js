@@ -1,7 +1,7 @@
 const { MessageEmbed } = require('discord.js');
 
 module.exports = {
-    name: 'syncperms',
+    name: 'infousuario',
     description: 'Sincroniza permissões de todos os canais de uma categoria com a categoria.',
     options: [
         {

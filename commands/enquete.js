@@ -1,6 +1,4 @@
 const { MessageEmbed } = require('discord.js');
-const fs = require('fs');
-const path = require('path');
 
 module.exports = {
     name: 'enquete',
@@ -64,19 +62,31 @@ module.exports = {
             await mensagemEnquete.react(emojis[i]);
         }
 
-        // Salvando dados da enquete
+        // Conectar ao MongoDB
+        const db = global.mongoClient.db("discordBot");
+        const enquetesCollection = db.collection("enquetes");
+        
+        // Criar um ID único para a enquete
+        const enqueteId = `${interaction.guild.id}_${interaction.channel.id}_${Date.now()}`;
+        
+        // Dados da enquete
         const enqueteData = {
+            _id: enqueteId,
             pergunta: pergunta,
-            opcoes: opcoesArray, // Corrigido para usar a variável definida anteriormente
+            opcoes: opcoesArray,
             votos: new Array(opcoesArray.length).fill(0),
             votantes: [],
+            channelId: interaction.channel.id,
+            guildId: interaction.guild.id,
             messageId: mensagemEnquete.id,
-            channelId: mensagemEnquete.channel.id,
-            endTime: Date.now() + tempo * 60000
+            tempo: tempo,
+            startTime: new Date(),
+            endTime: new Date(Date.now() + tempo * 60000),
+            active: true
         };
 
-        const dataPath = path.join(__dirname, 'data', `enquete_${mensagemEnquete.id}.json`);
-        fs.writeFileSync(dataPath, JSON.stringify(enqueteData));
+        // Salvar os dados da enquete no MongoDB
+        await enquetesCollection.insertOne(enqueteData);
 
         // Coletor de reações para a enquete
         const filter = (reaction, user) => {
@@ -85,7 +95,7 @@ module.exports = {
 
         const collector = mensagemEnquete.createReactionCollector({ filter, time: tempo * 60000 });
 
-        collector.on('collect', (reaction, user) => {
+        collector.on('collect', async (reaction, user) => {
             // Ignorar se o usuário for um bot
             if (user.bot) return;
         
@@ -95,21 +105,25 @@ module.exports = {
             // Se o emoji não for relevante para a votação, ignorar
             if (voteIndex === -1) return;
         
+            // Buscar dados atuais da enquete no MongoDB
+            const currentEnquete = await enquetesCollection.findOne({ _id: enqueteId });
+            if (!currentEnquete || !currentEnquete.active) return;
+            
             // Verificar se o usuário já votou
-            if (enqueteData.votantes.includes(user.id)) {
+            if (currentEnquete.votantes.includes(user.id)) {
                 // O usuário já votou, remover a reação para indicar que não pode votar novamente
                 reaction.users.remove(user.id);
                 return;
             }
         
-            // Se o usuário ainda não votou, adicionar ao array de votantes
-            enqueteData.votantes.push(user.id);
-        
-            // Atualizar o contador de votos para a opção correspondente e salvar os dados
-            enqueteData.votos[voteIndex]++;
-                
-            // Salvar os dados da enquete atualizados
-            fs.writeFileSync(dataPath, JSON.stringify(enqueteData)); // Altere 'filePath' para 'dataPath'
+            // Atualizar no MongoDB: adicionar votante e incrementar voto
+            await enquetesCollection.updateOne(
+                { _id: enqueteId },
+                { 
+                    $push: { votantes: user.id },
+                    $inc: { [`votos.${voteIndex}`]: 1 }
+                }
+            );
             
         
             // Feedback opcional para o usuário
@@ -123,33 +137,39 @@ module.exports = {
             
         });
         
-        collector.on('end', _collected => {
+        collector.on('end', async _collected => {
+            // Buscar dados finais da enquete no MongoDB
+            const finalEnquete = await enquetesCollection.findOne({ _id: enqueteId });
+            if (!finalEnquete) return;
+            
+            // Marcar enquete como inativa
+            await enquetesCollection.updateOne(
+                { _id: enqueteId },
+                { $set: { active: false } }
+            );
+            
             // Calcular o total de votos
-            const totalVotos = enqueteData.votantes.length;
+            const totalVotos = finalEnquete.votantes.length;
             
             // Criar um novo Embed para os resultados
             const embedResultados = new MessageEmbed()
-                .setTitle(`Resultados da Enquete: ${enqueteData.pergunta}`)
-                .setColor('GREEN') // Ou qualquer cor que você prefira
+                .setTitle(`Resultados da Enquete: ${finalEnquete.pergunta}`)
+                .setColor('GREEN')
                 .setDescription('A votação acabou. Aqui estão os resultados:')
                 .setFooter('Enquete encerrada');
         
             // Adicionar cada opção e o número de votos ao Embed
-            enqueteData.opcoes.forEach((opcao, index) => {
-                const votos = enqueteData.votos[index];
+            finalEnquete.opcoes.forEach((opcao, index) => {
+                const votos = finalEnquete.votos[index];
                 const porcentagem = totalVotos > 0 ? (votos / totalVotos * 100).toFixed(2) : 0;
                 embedResultados.addField(`${emojis[index]} ${opcao}`, `Votos: ${votos} (${porcentagem}%)`, false);
             });
         
             // Enviar o Embed com os resultados no canal da enquete
-            const channel = client.channels.cache.get(enqueteData.channelId);
-            channel.send({ embeds: [embedResultados] }).then(() => {
-                // Excluir o arquivo JSON após enviar os resultados
-                fs.unlink(dataPath, (err) => {
-                    if (err) throw err;
-                    console.log(`${dataPath} foi excluído`);
-                });
-            }).catch(console.error);
+            const channel = client.channels.cache.get(finalEnquete.channelId);
+            if (channel) {
+                channel.send({ embeds: [embedResultados] }).catch(console.error);
+            }
         
         });
         
